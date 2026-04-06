@@ -4,7 +4,7 @@ import { useToast } from '../context/ToastContext';
 import Modal from '../components/Modal';
 import Pagination from '../components/Pagination';
 import { Loader, EmptyState } from '../components/Shared';
-import { HiPlus, HiOutlineKey, HiOutlineClipboardCopy } from 'react-icons/hi';
+import { HiPlus, HiOutlineKey, HiOutlineClipboardCopy, HiOutlineShieldCheck, HiOutlineShoppingBag } from 'react-icons/hi';
 
 export default function Shops() {
   const toast = useToast();

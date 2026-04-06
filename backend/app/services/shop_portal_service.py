@@ -73,6 +73,66 @@ class ShopPortalService:
         ]
         recent_sales = [r async for r in self.inventory.aggregate(sales_pipeline)]
 
+        # --- NEW: Daily Sales (Last 7 Days) for Chart ---
+        from datetime import timedelta
+        from app.models.base import utc_now
+        seven_days_ago = utc_now() - timedelta(days=7)
+        
+        daily_pipeline = [
+            {"$match": {"shop_id": shop_id, "status": "sold", "sold_at": {"$gte": seven_days_ago}}},
+            {
+                "$group": {
+                    "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$sold_at"}},
+                    "count": {"$sum": 1}
+                }
+            },
+            {"$sort": {"_id": 1}}
+        ]
+        daily_data = [
+            {"date": r["_id"], "count": r["count"]} 
+            async for r in self.inventory.aggregate(daily_pipeline)
+        ]
+
+        # --- NEW: Out of Stock Alerts + Cross-Location Suggestions ---
+        alerts = []
+        for p_id in product_ids:
+            # Check current shop's pending stock for this product
+            has_stock = await self.inventory.find_one({
+                "shop_id": shop_id,
+                "product_id": p_id,
+                "status": "pending"
+            })
+
+            if not has_stock:
+                # 1. Get product name
+                product_meta = await self.products.find_one({"product_id": p_id}, {"product_name": 1})
+                p_name = product_meta["product_name"] if product_meta else "Product"
+
+                # 2. Find other shops where it IS available
+                other_shops_with_stock = []
+                other_shops_pipeline = [
+                    {"$match": {"product_id": p_id, "status": "pending", "shop_id": {"$ne": shop_id}}},
+                    {"$group": {"_id": "$shop_id"}},
+                    {
+                        "$lookup": {
+                            "from": "shops",
+                            "localField": "_id",
+                            "foreignField": "shop_id",
+                            "as": "shop_info"
+                        }
+                    },
+                    {"$unwind": "$shop_info"},
+                    {"$project": {"_id": 0, "name": "$shop_info.name", "location": "$shop_info.location"}}
+                ]
+                async for row in self.inventory.aggregate(other_shops_pipeline):
+                    other_shops_with_stock.append(f"{row['name']} ({row['location']})")
+
+                alerts.append({
+                    "product_name": p_name,
+                    "product_id": p_id,
+                    "available_at": other_shops_with_stock
+                })
+
         return {
             "shop_id": shop["shop_id"],
             "shop_name": shop["name"],
@@ -83,6 +143,8 @@ class ShopPortalService:
             "sold_units": sold,
             "total_revenue": total_revenue,
             "recent_sales": recent_sales,
+            "daily_sales": daily_data,
+            "alerts": alerts
         }
 
     async def get_sales_history(self, shop_id: str, page: int = 1, page_size: int = 30) -> dict:

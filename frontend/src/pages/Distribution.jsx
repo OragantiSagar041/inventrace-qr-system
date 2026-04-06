@@ -164,7 +164,9 @@ export default function Distribution() {
             >
               <option value="">Select Product Specifications</option>
               {products.map(p => (
-                <option key={p.product_id} value={p.product_id}>{p.name} (₹{p.price})</option>
+                <option key={p.product_id} value={p.product_id}>
+                  {p.product_name} (₹{p.total_price?.toLocaleString('en-IN')})
+                </option>
               ))}
             </select>
           </div>

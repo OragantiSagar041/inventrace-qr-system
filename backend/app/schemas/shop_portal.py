@@ -14,6 +14,8 @@ class ShopDashboardResponse(BaseModel):
     sold_units: int
     total_revenue: float
     recent_sales: list[dict]
+    daily_sales: list[dict] = []  # [{ "date": "...", "count": 0 }]
+    alerts: list[dict] = []       # [{ "product_name": "...", "product_id": "..." }]
 
 
 class ShopSaleRecord(BaseModel):
