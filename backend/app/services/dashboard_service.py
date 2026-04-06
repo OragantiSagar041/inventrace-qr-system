@@ -97,6 +97,101 @@ class DashboardService:
                     )
                 )
 
+        # --- Grouped Daily Sales (Last 15 Days) ---
+        from datetime import timedelta
+        from app.models.base import utc_now
+        from collections import defaultdict
+        
+        window = utc_now() - timedelta(days=30) # Window for last 30 days
+        pipeline = [
+            {"$match": {"status": "sold", "sold_at": {"$gte": window}}},
+            {
+                "$lookup": {
+                    "from": "products",
+                    "localField": "product_id",
+                    "foreignField": "product_id",
+                    "as": "prod"
+                }
+            },
+            {"$unwind": "$prod"},
+            {
+                "$group": {
+                    "_id": {
+                        "date": {"$dateToString": {"format": "%Y-%m-%d", "date": "$sold_at"}},
+                        "shop_id": "$shop_id"
+                    },
+                    "count": {"$sum": 1},
+                    "revenue": {"$sum": "$prod.total_price"}
+                }
+            },
+            {"$sort": {"_id.date": 1}}
+        ]
+        
+        daily_map = defaultdict(lambda: {"overall": 0, "overall_revenue": 0})
+        async for r in self.inventory.aggregate(pipeline):
+            date = r["_id"]["date"]
+            shop_id = r["_id"]["shop_id"]
+            count = r["count"]
+            rev = r["revenue"]
+            
+            daily_map[date]["date"] = date
+            daily_map[date]["overall"] += count
+            daily_map[date]["overall_revenue"] += rev
+            daily_map[date][shop_id] = count
+            daily_map[date][f"{shop_id}_revenue"] = rev
+
+        chart_data = sorted(daily_map.values(), key=lambda x: x["date"])
+
+        # --- Product Popularity (Top 5) ---
+        pop_pipeline = [
+            {"$match": {"status": "sold"}},
+            {"$group": {"_id": "$product_id", "sold_count": {"$sum": 1}}},
+            {"$sort": {"sold_count": -1}},
+            {"$limit": 5},
+            {"$lookup": {"from": "products", "localField": "_id", "foreignField": "product_id", "as": "p"}},
+            {"$unwind": "$p"},
+            {"$project": {"_id": 0, "name": "$p.product_name", "value": "$sold_count"}}
+        ]
+        popularity = [p async for p in self.inventory.aggregate(pop_pipeline)]
+
+        # --- Enhanced Alerts with Forecast ---
+        # Calculate daily sale rate per shop/product for the last 7 days
+        seven_days_ago = utc_now() - timedelta(days=7)
+        rate_pipeline = [
+            {"$match": {"status": "sold", "sold_at": {"$gte": seven_days_ago}}},
+            {"$group": {"_id": {"shop_id": "$shop_id", "product_id": "$product_id"}, "count": {"$sum": 1}}}
+        ]
+        rates = {}
+        async for r in self.inventory.aggregate(rate_pipeline):
+            key = f"{r['_id']['shop_id']}_{r['_id']['product_id']}"
+            rates[key] = r["count"] / 7.0
+
+        for alert in alerts:
+            key = f"{alert.shop_id}_{alert.product_id}"
+            rate = rates.get(key, 0)
+            if rate > 0 and alert.available_stock > 0:
+                alert.forecast = f"Stock out in ~{int(alert.available_stock / rate)} days"
+            elif alert.available_stock == 0:
+                alert.forecast = "Urgent: Refill Required"
+            else:
+                alert.forecast = "Low velocity"
+
+        # --- Recent Sales ---
+        recent_sales_pipeline = [
+            {"$match": {"status": "sold"}},
+            {"$sort": {"sold_at": -1}},
+            {"$limit": 15},
+            {"$lookup": {"from": "products", "localField": "product_id", "foreignField": "product_id", "as": "product"}},
+            {"$unwind": "$product"},
+            {
+                "$project": {
+                    "_id": 0, "inventory_id": 1, "serial_number": 1, "shop_id": 1, 
+                    "sold_at": 1, "total_price": "$product.total_price", "product_name": "$product.product_name"
+                }
+            }
+        ]
+        recent_sales = [r async for r in self.inventory.aggregate(recent_sales_pipeline)]
+
         return DashboardResponse(
             total_products=total_products,
             total_sections=total_sections,
@@ -106,4 +201,7 @@ class DashboardService:
             pending_units=pending_units,
             stock_per_shop=sorted(stock_per_shop, key=lambda item: item.shop_name.lower()),
             alerts=sorted(alerts, key=lambda item: (item.alert_type, item.shop_name.lower(), item.product_name.lower())),
+            chart_data=chart_data,
+            recent_sales=recent_sales,
+            popularity=popularity
         )

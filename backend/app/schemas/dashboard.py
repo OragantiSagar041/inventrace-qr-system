@@ -15,6 +15,7 @@ class AlertSummary(BaseModel):
     product_name: str
     available_stock: int
     alert_type: str
+    forecast: str = ""
 
 
 class DashboardResponse(BaseModel):
@@ -26,3 +27,6 @@ class DashboardResponse(BaseModel):
     pending_units: int
     stock_per_shop: list[ShopStockSummary]
     alerts: list[AlertSummary]
+    chart_data: list[dict] = []  # [{ "date": "...", "overall": 10, "shop_id_1": 5, ... }]
+    recent_sales: list[dict] = []
+    popularity: list[dict] = []
