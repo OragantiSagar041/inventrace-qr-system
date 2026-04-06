@@ -1,0 +1,15 @@
+[build]
+  # The directory where the frontend code is located
+  base = "frontend"
+  
+  # The command to build the project
+  command = "npm run build"
+  
+  # The directory that Netlify will serve (Vite builds to 'dist')
+  publish = "dist"
+
+# Single Page Application (SPA) redirect rule
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
