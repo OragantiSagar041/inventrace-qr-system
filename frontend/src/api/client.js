@@ -12,7 +12,25 @@ const api = axios.create({
 // Interceptor: attach admin OR shop token based on what's stored
 api.interceptors.request.use((config) => {
   const adminToken = localStorage.getItem('admin_token');
-  const shopToken = localStorage.getItem('shop_token');
+  let shopToken = null;
+  
+  try {
+    const shops = JSON.parse(localStorage.getItem('logged_in_shops') || '[]');
+    const sessionActiveId = sessionStorage.getItem('active_shop_id');
+    const localActiveId = localStorage.getItem('active_shop_id');
+    const activeShopId = sessionActiveId || localActiveId;
+    
+    const activeShop = shops.find(s => String(s.info?.shop_id) === String(activeShopId)) || shops[0];
+    if (activeShop) {
+      shopToken = activeShop.token;
+    }
+  } catch (e) {}
+
+  if (!shopToken) {
+    // Fallback for old sessions that weren't migrated
+    shopToken = localStorage.getItem('shop_token');
+  }
+
   if (adminToken) {
     config.headers['X-Admin-Token'] = adminToken;
   }
